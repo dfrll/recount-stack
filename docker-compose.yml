@@ -1,0 +1,72 @@
+services:
+  db:
+    image: postgres:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: recount3
+      POSTGRES_USER: sammy
+      POSTGRES_PASSWORD_FILE: /run/secrets/db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    secrets:
+      - source: db
+        target: db
+        uid: "999"
+        gid: "999"
+        mode: "0440"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U sammy -d recount3" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  loader:
+    build: services/loader
+    depends_on:
+      db:
+        condition: service_healthy
+    secrets:
+      - loader
+
+  server:
+    build: services/server
+    depends_on:
+      - loader
+    secrets:
+      - server
+    environment:
+      GUNICORN_BIND: 0.0.0.0:8080
+      GUNICORN_WORKERS: 4
+      GUNICORN_THREADS: 4
+      GUNICORN_TIMEOUT: 30
+
+  app:
+    build:
+      context: services/app
+      target: app-dist
+    image: app_dist
+    depends_on:
+      - server
+
+  nginx:
+    build:
+      context: infra/nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+      - app
+
+secrets:
+  db:
+    file: ./secrets/db.txt
+  loader:
+    file: ./secrets/loader.env
+  server:
+    file: ./secrets/server.env
+
+volumes:
+  pgdata:

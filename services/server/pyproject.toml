@@ -1,0 +1,32 @@
+[project]
+name = "server"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Your Name",email = "you@example.com"}
+]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+flask = ">=3.1.1,<4.0.0"
+flask-cors = ">=6.0.1,<7.0.0"
+psycopg2-binary = ">=2.9.10,<3.0.0"
+dotenv = ">=0.9.9,<0.10.0"
+sqlalchemy = "^2.0.41"
+pyarrow = "^21.0.0"
+pandas = "^2.3.1"
+pyrecount = { git = "https://github.com/dfrll/pyrecount.git" }
+gunicorn = "^23.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.1"
+
+
+[tool.poetry]
+packages = [{include = "server", from = "src"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
