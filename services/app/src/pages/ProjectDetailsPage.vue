@@ -7,20 +7,26 @@ import { useProjectData } from '@/composables/useProjectData'
 import { projectColumnDefs } from '@/columns/projectColumns'
 import { useGeneData } from '@/composables/useGeneData'
 import { geneColumnDefs } from '@/columns/geneColumns'
+import { useExonData } from '@/composables/useExonData'
+import { exonColumnDefs } from '@/columns/exonColumns'
 import type { GridApi, IServerSideDatasource, Theme } from 'ag-grid-community'
 import type { GridOptions } from 'ag-grid-enterprise'
 
 const route = useRoute()
 const mdTheme = inject<Theme<unknown>>('mdTheme');
 
-const gridApi = ref<GridApi | null>(null)
+const projectGridApi = ref<GridApi | null>(null)
 const geneGridApi = ref<GridApi | null>(null)
+const exonGridApi = ref<GridApi | null>(null)
 
 // composables
 const { project, fetchProject } = useProjectData()
 const { fetchGene } = useGeneData()
-const { isVisible: isGeneVisible, toggle: toggleGene } = useVisibility(false)
+const { fetchExon } = useExonData()
+
 const { isVisible: isProjectVisible, toggle: toggleProject } = useVisibility(true)
+const { isVisible: isGeneVisible, toggle: toggleGene } = useVisibility(false)
+const { isVisible: isExonVisible, toggle: toggleExon } = useVisibility(false)
 
 // computed properties
 const projectId = computed(() => route.params.project_id as string)
@@ -56,9 +62,34 @@ const geneDatasource: IServerSideDatasource = {
     },
 }
 
+// server-side datasource for exon table
+const exonDatasource: IServerSideDatasource = {
+    getRows(params: any) {
+        const { startRow, endRow } = params.request
+        const currentProjectId = projectId.value
+
+        console.log('[ExonDatasource] Fetchin rows:', { startRow, endRow, projectId: currentProjectId })
+
+        if (!currentProjectId) {
+            params.fail()
+            return
+        }
+
+        fetchExon(currentProjectId, startRow, endRow)
+            .then(({ rows, totalCount }) => {
+                console.log('[ExonDatasource] Success:', { rows, totalCount })
+                params.success({ rowData: rows, rowCount: totalCount })
+            })
+            .catch(error => {
+                console.error('[ExonDatasource] Error:', error)
+                params.fail()
+            })
+    },
+}
+
 // handlers
 function onProjectGridReady(params: any) {
-    gridApi.value = params.api
+    projectGridApi.value = params.api
     console.log('[ProjectGrid] Grid ready');
 }
 
@@ -67,28 +98,53 @@ function onGeneGridReady(params: any) {
     console.log('[GeneGrid] Grid ready');
 }
 
+function onExonGridReady(params: any) {
+    exonGridApi.value = params.api
+    console.log('[ExonGrid] Grid ready');
+}
+
 // watchers
 watch(
     [projectId, geneGridApi],
     async ([newId, api]) => {
         if (!newId || !api) return;
 
-        console.log('[Watcher] Project ID or Grid API changed:', newId);
+        console.log('[Watcher: GeneGrid] Project ID or Grid API changed:', newId);
         try {
             await fetchProject(newId)
-            console.log('[Watch] Project data fetched')
+            console.log('[Watcher: GeneGrid] Project data fetched')
 
             api.setGridOption('serverSideDatasource', geneDatasource)
-            console.log('[Watch] Datasource set')
+            console.log('[Watcher: GeneGrid] Datasource set')
 
             api.refreshServerSide({ purge: true })
-            console.log('[Watch] grid refreshed')
+            console.log('[Watcher: GeneGrid] grid refreshed')
         } catch (error) {
-            console.error('[Watch] Error during update:', error);
+            console.error('[Watcher: GeneGrid] Error during update:', error);
         }
     },
     { immediate: true }
 );
+
+watch(
+    [projectId, exonGridApi],
+    async ([newId, api]) => {
+        if (!newId || !api) return;
+
+        console.log('[Watcher: ExonGrid] Project ID or Grid API changed:', newId);
+        try {
+            api.setGridOption('serverSideDatasource', exonDatasource)
+            console.log('[Watcher: ExonGrid] Datasource set')
+
+            api.refreshServerSide({ purge: true })
+            console.log('[Watcher: ExonGrid] Grid refreshed')
+        } catch (error) {
+            console.error('[Watcher: ExonGrid] Error during update:', error);
+        }
+    },
+    { immediate: true }
+)
+
 
 // grid options
 const BASE_GRID_OPTIONS: GridOptions = {
@@ -117,6 +173,13 @@ const geneGridOptions: GridOptions = {
     onGridReady: onGeneGridReady,
 }
 
+const exonGridOptions: GridOptions = {
+    ...BASE_GRID_OPTIONS,
+    columnDefs: exonColumnDefs,
+    rowModelType: 'serverSide',
+    onGridReady: onExonGridReady,
+}
+
 </script>
 
 <template>
@@ -136,6 +199,14 @@ const geneGridOptions: GridOptions = {
 
     <div class="content" :style="{ display: isGeneVisible ? 'block' : 'none' }">
         <AgGridVue class="ag-theme-balham ag-grid-wrapper" :gridOptions="geneGridOptions" :theme="mdTheme" />
+    </div>
+
+    <button class="collapsible" @click="toggleExon">
+        {{ isGeneVisible ? 'Exon Table' : 'Exon Table' }}
+    </button>
+
+    <div class="content" :style="{ display: isExonVisible ? 'block' : 'none' }">
+        <AgGridVue class="ag-theme-balham ag-grid-wrapper" :gridOptions="exonGridOptions" :theme="mdTheme" />
     </div>
 
 </template>
