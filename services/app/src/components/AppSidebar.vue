@@ -58,7 +58,7 @@ const items = computed(() => {
     <Sidebar>
         <SidebarContent>
             <SidebarGroup>
-                <SidebarGroupLabel>Recount Lab</SidebarGroupLabel>
+                <SidebarGroupLabel>recount-stack</SidebarGroupLabel>
                 <SidebarGroupContent>
                     <SidebarMenu>
                         <SidebarMenuItem v-for="item in items" :key="item.title">
