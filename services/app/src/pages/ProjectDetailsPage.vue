@@ -7,7 +7,8 @@ import { useProjectData } from '@/composables/useProjectData'
 import { projectColumnDefs } from '@/columns/projectColumns'
 import { useGeneData } from '@/composables/useGeneData'
 import { geneColumnDefs } from '@/columns/geneColumns'
-import type { GridApi, GridOptions, IServerSideDatasource, Theme } from 'ag-grid-community'
+import type { GridApi, IServerSideDatasource, Theme } from 'ag-grid-community'
+import type { GridOptions } from 'ag-grid-enterprise'
 
 const route = useRoute()
 const mdTheme = inject<Theme<unknown>>('mdTheme');
@@ -58,31 +59,32 @@ const geneDatasource: IServerSideDatasource = {
 // handlers
 function onProjectGridReady(params: any) {
     gridApi.value = params.api
+    console.log('[ProjectGrid] Grid ready');
 }
 
 function onGeneGridReady(params: any) {
     geneGridApi.value = params.api
-    console.log('[GeneGrid] Grid ready, setting datasource')
-
-    // Set the datasource when grid is ready
-    if (projectId.value) {
-        params.api.setGridOption('serverSideDatasource', geneDatasource)
-    }
+    console.log('[GeneGrid] Grid ready');
 }
 
 // watchers
 watch(
-    projectId,
-    async (newId) => {
-        console.log('[Watch] Project ID changed:', newId)
-        if (newId) {
-            await fetchProject(newId)
+    [projectId, geneGridApi],
+    async ([newId, api]) => {
+        if (!newId || !api) return;
 
-            // Update gene grid datasource when project changes
-            if (geneGridApi.value) {
-                console.log('[Watch] Updating gene grid datasource')
-                geneGridApi.value.refreshServerSide({ purge: true })
-            }
+        console.log('[Watcher] Project ID or Grid API changed:', newId);
+        try {
+            await fetchProject(newId)
+            console.log('[Watch] Project data fetched')
+
+            api.setGridOption('serverSideDatasource', geneDatasource)
+            console.log('[Watch] Datasource set')
+
+            api.refreshServerSide({ purge: true })
+            console.log('[Watch] grid refreshed')
+        } catch (error) {
+            console.error('[Watch] Error during update:', error);
         }
     },
     { immediate: true }
