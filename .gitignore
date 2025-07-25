@@ -1,0 +1,10 @@
+secrets
+.env
+.env.*
+
+.vscode
+
+node_modules
+dist
+__pycache__
+*.pyc
