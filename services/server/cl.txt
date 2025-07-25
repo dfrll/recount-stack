@@ -1,0 +1,572 @@
+
+Looking at your current Flask app, I can see it's a bioinformatics data 
+API that handles gene, exon, and junction data. Here's how to refactor 
+it using the structure we discussed:This refactoring transforms your 
+bioinformatics Flask app into a well-structured, maintainable application.
+ Here are the key improvements:
+
+**Major Benefits:**
+
+1. **Clean Architecture**: Routes are now thin and focused only on HTTP concerns
+2. **SQL Management**: All queries moved to separate `.sql` files - easier for DBAs to optimize
+3. **Business Logic Isolation**: The complex pyrecount caching and data preparation logic is now in dedicated services
+4. **Proper Error Handling**: Consistent error handling with proper logging
+5. **Database Safety**: Context managers ensure connections are properly closed and transactions are handled correctly
+
+**Key Design Patterns Used:**
+
+- **Repository Pattern**: Query modules act as repositories for each data type
+- **Service Layer**: Business logic is encapsulated in service classes
+- **Strategy Pattern**: The `QUERY_MAP` allows the same logic to work for gene/exon/jxn data
+- **Context Managers**: Proper resource management for database connections
+
+**Migration Strategy:**
+
+1. Create the new directory structure
+2. Move SQL queries to separate files first
+3. Create query modules that use the SQL files
+4. Build service layer to orchestrate the business logic
+5. Update routes to use services
+6. Add comprehensive tests
+
+The refactored code maintains all your original functionality (pyrecount 
+integration, polars data processing, pagination) while making it much 
+easier to maintain, test, and extend. Would you like me to elaborate on
+any specific part or help you implement the migration?
+
+# Bioinformatics Flask App Refactoring
+
+## New Directory Structure
+
+```
+services/server/
+├── src/
+│   └── server/
+│       ├── __init__.py
+│       ├── app.py                    # Flask routes only
+│       ├── db/
+│       │   ├── __init__.py
+│       │   ├── connection.py         # Database connection management
+│       │   ├── sql/                  # Raw SQL files
+│       │   │   ├── metadata/
+│       │   │   │   ├── get_projects.sql
+│       │   │   │   └── get_project_details.sql
+│       │   │   ├── gene/
+│       │   │   │   ├── insert.sql
+│       │   │   │   ├── exists.sql
+│       │   │   │   ├── count.sql
+│       │   │   │   └── select.sql
+│       │   │   ├── exon/
+│       │   │   │   ├── insert.sql
+│       │   │   │   ├── exists.sql
+│       │   │   │   ├── count.sql
+│       │   │   │   └── select.sql
+│       │   │   └── jxn/
+│       │   │       ├── insert.sql
+│       │   │       ├── exists.sql
+│       │   │       ├── count.sql
+│       │   │       └── select.sql
+│       │   └── queries/              # Python query functions
+│       │       ├── __init__.py
+│       │       ├── metadata.py
+│       │       ├── gene.py
+│       │       ├── exon.py
+│       │       └── jxn.py
+│       └── services/
+│           ├── __init__.py
+│           ├── metadata_service.py
+│           ├── data_service.py       # Handles gene/exon/jxn logic
+│           └── cache_service.py      # Project caching logic
+├── tests/
+├── config/
+└── ...
+```
+
+## Refactored Implementation
+
+### 1. Database Connection (`src/server/db/connection.py`)
+
+```python
+import os
+import psycopg2
+from contextlib import contextmanager
+from psycopg2.extras import RealDictCursor
+import logging
+
+logger = logging.getLogger(__name__)
+
+def get_db_connection():
+    """Get a database connection"""
+    return psycopg2.connect(
+        host=os.getenv('DB_HOST'),
+        database=os.getenv('DB_NAME'),
+        user=os.getenv('DB_USER'),
+        password=os.getenv('DB_PASSWORD'),
+        port=os.getenv('DB_PORT', 5432)
+    )
+
+@contextmanager
+def db_transaction():
+    """Context manager for database transactions with RealDictCursor"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            yield conn, cur
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Database transaction failed: {e}")
+        raise
+    finally:
+        conn.close()
+```
+
+### 2. SQL Files
+
+**`src/server/db/sql/metadata/get_projects.sql`**
+```sql
+SELECT DISTINCT project_id FROM metadata;
+```
+
+**`src/server/db/sql/metadata/get_project_details.sql`**
+```sql
+SELECT rail_id, external_id, project_id, organism, metadata_source, date_processed 
+FROM metadata 
+WHERE project_id = %s;
+```
+
+**`src/server/db/sql/exon/exists.sql`**
+```sql
+SELECT EXISTS (
+    SELECT 1 FROM sammy.exon 
+    WHERE project_id = %s 
+    LIMIT 1
+) as exists;
+```
+
+**`src/server/db/sql/exon/count.sql`**
+```sql
+SELECT COUNT(*) as count 
+FROM sammy.exon 
+WHERE project_id = %s;
+```
+
+**`src/server/db/sql/exon/select.sql`**
+```sql
+SELECT * FROM sammy.exon 
+WHERE project_id = %s 
+ORDER BY project_id 
+LIMIT %s OFFSET %s;
+```
+
+**`src/server/db/sql/exon/insert.sql`**
+```sql
+INSERT INTO sammy.exon (
+    project_id, external_id, chrom, start, "end", strand, count
+)
+VALUES %s;
+```
+
+### 3. Query Functions
+
+**`src/server/db/queries/metadata.py`**
+```python
+import os
+import datetime
+from ..connection import db_transaction
+
+def _load_sql(filename):
+    """Load SQL from file"""
+    sql_dir = os.path.join(os.path.dirname(__file__), '..', 'sql', 'metadata')
+    with open(os.path.join(sql_dir, filename), 'r') as f:
+        return f.read()
+
+def get_all_projects():
+    """Get all distinct project IDs"""
+    query = _load_sql('get_projects.sql')
+    
+    with db_transaction() as (conn, cur):
+        cur.execute(query)
+        return cur.fetchall()
+
+def get_project_details(project_id):
+    """Get project details with proper data type conversion"""
+    query = _load_sql('get_project_details.sql')
+    
+    with db_transaction() as (conn, cur):
+        cur.execute(query, (project_id,))
+        rows = cur.fetchall()
+        
+        # Convert data types for JSON serialization
+        table = []
+        for row in rows:
+            row_dict = dict(row)
+            
+            # Convert rail_id to int if possible
+            try:
+                row_dict["rail_id"] = int(row_dict["rail_id"])
+            except (ValueError, TypeError):
+                pass
+            
+            # Convert datetime to ISO format
+            if isinstance(row_dict.get("date_processed"), (datetime.date, datetime.datetime)):
+                row_dict["date_processed"] = row_dict["date_processed"].isoformat()
+            
+            table.append(row_dict)
+        
+        return table
+```
+
+**`src/server/db/queries/exon.py`**
+```python
+import os
+from psycopg2.extras import execute_values
+from ..connection import db_transaction
+
+def _load_sql(filename):
+    """Load SQL from file"""
+    sql_dir = os.path.join(os.path.dirname(__file__), '..', 'sql', 'exon')
+    with open(os.path.join(sql_dir, filename), 'r') as f:
+        return f.read()
+
+def project_exists(project_id):
+    """Check if project data exists in exon table"""
+    query = _load_sql('exists.sql')
+    
+    with db_transaction() as (conn, cur):
+        cur.execute(query, (project_id,))
+        return cur.fetchone()["exists"]
+
+def get_exon_count(project_id):
+    """Get count of exon records for project"""
+    query = _load_sql('count.sql')
+    
+    with db_transaction() as (conn, cur):
+        cur.execute(query, (project_id,))
+        return cur.fetchone()["count"]
+
+def get_exon_data(project_id, start, limit):
+    """Get paginated exon data"""
+    query = _load_sql('select.sql')
+    
+    with db_transaction() as (conn, cur):
+        cur.execute(query, (project_id, limit, start))
+        return cur.fetchall()
+
+def insert_exon_data(values):
+    """Bulk insert exon data"""
+    query = _load_sql('insert.sql')
+    
+    with db_transaction() as (conn, cur):
+        execute_values(cur, query, values)
+```
+
+### 4. Service Layer
+
+**`src/server/services/cache_service.py`**
+```python
+import asyncio
+import logging
+from pyrecount.models import Dtype, Annotation
+from pyrecount.accessor import Metadata, Project
+import polars as pl
+
+logger = logging.getLogger(__name__)
+
+class CacheService:
+    
+    @staticmethod
+    def cache_project(project_id, dtype):
+        """Cache project data from pyrecount"""
+        organism = "human"
+        dbase = "sra"
+        annotation = Annotation.GENCODE_V29
+
+        mdata = Metadata(organism=organism)
+        mdata.cache()
+        mdata_frame = mdata.load()
+
+        proj_frame = mdata_frame.filter(pl.col("project").is_in([project_id]))
+
+        project = Project(
+            metadata=proj_frame,
+            dbase=dbase,
+            organism=organism,
+            dtype=[dtype],
+            jxn_format="all",
+            annotation=annotation,
+        )
+
+        asyncio.run(project.cache())
+        return project
+    
+    @staticmethod
+    def prepare_gene_data(project_id, project):
+        """Prepare gene data for insertion"""
+        annotation, counts = project.load(Dtype.GENE)
+        counts_long = counts.unpivot(
+            index=["gene_id"], 
+            variable_name="external_id", 
+            value_name="count"
+        ).with_columns(pl.lit(project_id).alias("project_id"))
+
+        records = counts_long.to_dicts()
+        return [
+            (r["project_id"], r["external_id"], r["gene_id"], r["count"])
+            for r in records
+        ]
+    
+    @staticmethod
+    def prepare_exon_data(project_id, project):
+        """Prepare exon data for insertion"""
+        annotation, counts = project.load(Dtype.EXON)
+        counts_long = counts.unpivot(
+            index=["chrom", "start", "end", "strand"],
+            variable_name="external_id",
+            value_name="count",
+        ).with_columns(pl.lit(project_id).alias("project_id"))
+
+        logger.info(f"Exon unpivot finished for project {project_id}")
+
+        records = counts_long.to_dicts()
+        return [
+            (
+                r["project_id"],
+                r["external_id"],
+                r["chrom"],
+                r["start"],
+                r["end"],
+                r["strand"],
+                r["count"],
+            )
+            for r in records
+        ]
+    
+    @staticmethod
+    def prepare_jxn_data(project_id, project):
+        """Prepare junction data for insertion"""
+        jxn_mm_dataframe, jxn_dataframe = project.load(Dtype.JXN)
+        records = jxn_dataframe.to_dicts()
+
+        return [
+            (
+                r["project_id"],
+                r["chromosome"],
+                r["start"],
+                r["end"],
+                r["length"],
+                r["strand"],
+                r["annotated"],
+                r["left_motif"],
+                r["right_motif"],
+                r["left_annotated"],
+                r["right_annotated"],
+            )
+            for r in records
+        ]
+```
+
+**`src/server/services/data_service.py`**
+```python
+import logging
+from pyrecount.models import Dtype
+from ..db.queries.gene import (
+    project_exists as gene_exists,
+    get_gene_count,
+    get_gene_data,
+    insert_gene_data
+)
+from ..db.queries.exon import (
+    project_exists as exon_exists,
+    get_exon_count,
+    get_exon_data,
+    insert_exon_data
+)
+from ..db.queries.jxn import (
+    project_exists as jxn_exists,
+    get_jxn_count,
+    get_jxn_data,
+    insert_jxn_data
+)
+from .cache_service import CacheService
+
+logger = logging.getLogger(__name__)
+
+class DataService:
+    
+    # Map dtype to query functions
+    QUERY_MAP = {
+        Dtype.GENE: {
+            'exists': gene_exists,
+            'count': get_gene_count,
+            'data': get_gene_data,
+            'insert': insert_gene_data,
+            'prepare': CacheService.prepare_gene_data
+        },
+        Dtype.EXON: {
+            'exists': exon_exists,
+            'count': get_exon_count,
+            'data': get_exon_data,
+            'insert': insert_exon_data,
+            'prepare': CacheService.prepare_exon_data
+        },
+        Dtype.JXN: {
+            'exists': jxn_exists,
+            'count': get_jxn_count,
+            'data': get_jxn_data,
+            'insert': insert_jxn_data,
+            'prepare': CacheService.prepare_jxn_data
+        }
+    }
+    
+    @classmethod
+    def get_project_data(cls, project_id, dtype, start=0, limit=1000):
+        """Get project data, caching if necessary"""
+        if dtype not in cls.QUERY_MAP:
+            raise ValueError(f"Invalid data type: {dtype}")
+        
+        queries = cls.QUERY_MAP[dtype]
+        
+        # Check if data exists
+        if not queries['exists'](project_id):
+            logger.info(f"Caching {dtype.value} data for project {project_id}")
+            cls._cache_and_insert(project_id, dtype, queries)
+        
+        # Get data
+        total_count = queries['count'](project_id)
+        table_data = queries['data'](project_id, start, limit)
+        
+        return {
+            'table': table_data,
+            'totalCount': total_count
+        }
+    
+    @classmethod
+    def _cache_and_insert(cls, project_id, dtype, queries):
+        """Cache project data and insert into database"""
+        try:
+            # Cache the project
+            project = CacheService.cache_project(project_id, dtype)
+            
+            # Prepare data for insertion
+            values = queries['prepare'](project_id, project)
+            
+            # Insert data
+            logger.info(f"Starting insert {project_id} into {dtype.value} table")
+            queries['insert'](values)
+            logger.info(f"Finished insert {project_id} into {dtype.value} table")
+            
+        except Exception as e:
+            logger.exception(f"Failed caching/inserting '{project_id}' for {dtype.value}: {e}")
+            raise
+```
+
+**`src/server/services/metadata_service.py`**
+```python
+from ..db.queries.metadata import get_all_projects, get_project_details
+
+class MetadataService:
+    
+    @staticmethod
+    def get_projects():
+        """Get all project IDs"""
+        return get_all_projects()
+    
+    @staticmethod
+    def get_project_info(project_id):
+        """Get detailed project information"""
+        return get_project_details(project_id)
+```
+
+### 5. Refactored Flask Routes (`src/server/app.py`)
+
+```python
+import logging
+from flask import Flask, jsonify, request, abort
+from flask_cors import CORS
+from pyrecount.models import Dtype
+
+from .services.metadata_service import MetadataService
+from .services.data_service import DataService
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+CORS(app, origins=["http://localhost:5173"])
+
+@app.route("/api/projects", methods=["GET"])
+def get_projects():
+    """Get all project IDs"""
+    try:
+        projects = MetadataService.get_projects()
+        return jsonify({"status": "success", "table": projects})
+    except Exception as e:
+        logger.exception("Error getting projects")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/project/<project_id>", methods=["GET"])
+def get_project(project_id):
+    """Get project details"""
+    try:
+        project_info = MetadataService.get_project_info(project_id)
+        return jsonify({"status": "success", "table": project_info})
+    except Exception as e:
+        logger.exception(f"Error getting project {project_id}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/project/<project_id>/gene", methods=["GET"])
+def get_gene(project_id):
+    """Get gene data for project"""
+    return _handle_data_request(project_id, Dtype.GENE)
+
+@app.route("/api/project/<project_id>/exon", methods=["GET"])
+def get_exon(project_id):
+    """Get exon data for project"""
+    return _handle_data_request(project_id, Dtype.EXON)
+
+@app.route("/api/project/<project_id>/jxn", methods=["GET"])
+def get_jxn(project_id):
+    """Get junction data for project"""
+    return _handle_data_request(project_id, Dtype.JXN)
+
+def _handle_data_request(project_id, dtype):
+    """Handle data requests with pagination"""
+    try:
+        # Get pagination parameters
+        start = request.args.get("start", default=0, type=int)
+        end = request.args.get("end", default=1000, type=int)
+        limit = end - start
+        
+        # Get data through service layer
+        result = DataService.get_project_data(project_id, dtype, start, limit)
+        
+        return jsonify({
+            "status": "success",
+            "table": result['table'],
+            "totalCount": result['totalCount']
+        })
+        
+    except ValueError as e:
+        abort(400, str(e))
+    except Exception as e:
+        logger.exception(f"Error handling {dtype.value} request for project {project_id}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+## Key Improvements
+
+1. **Separation of Concerns**: Routes only handle HTTP, services handle business logic, queries handle database access
+2. **SQL in Files**: All SQL queries moved to separate files for better maintainability
+3. **Proper Error Handling**: Consistent error handling with logging
+4. **Context Managers**: Proper database connection and transaction management
+5. **Type Safety**: Better organization around the Dtype enum
+6. **Reusability**: Service methods can be reused outside of Flask routes
+7. **Testability**: Each layer can be tested independently
+
+This refactor maintains all the original functionality while making the code much more maintainable and extensible.
+
+

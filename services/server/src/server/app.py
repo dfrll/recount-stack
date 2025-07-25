@@ -1,15 +1,12 @@
 #! /usr/bin/env python3
-import os
-import asyncio
 import logging
 import datetime
-import psycopg2
 import polars as pl
+
 
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor, execute_values
 
-from dotenv import load_dotenv
 
 from flask import Flask, jsonify, request, abort
 from flask_cors import CORS
@@ -17,24 +14,14 @@ from flask_cors import CORS
 from pyrecount.models import Dtype, Annotation
 from pyrecount.accessor import Metadata, Project
 
+from db import get_db_connection
+from services.cache_service import cache_project
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:5173"])
-
-load_dotenv(dotenv_path="/run/secrets/server")
-
-
-def get_db_connection():
-    conn = psycopg2.connect(
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
-        database=os.getenv("DB_NAME"),
-    )
-    return conn
 
 
 @app.route("/api/projects", methods=["GET"])
@@ -103,30 +90,6 @@ def fetch_table_data(cur, table_name, project_id, start, limit):
     return cur.fetchall()
 
 
-def cache_project(project_id, dtype):
-    organism = "human"
-    dbase = "sra"
-    annotation = Annotation.GENCODE_V29
-
-    mdata = Metadata(organism=organism)
-    mdata.cache()
-    mdata_frame = mdata.load()
-
-    proj_frame = mdata_frame.filter(pl.col("project").is_in([project_id]))
-
-    project = Project(
-        metadata=proj_frame,
-        dbase=dbase,
-        organism=organism,
-        dtype=[dtype],
-        jxn_format="all",
-        annotation=annotation,
-    )
-
-    asyncio.run(project.cache())
-    return project
-
-
 @app.route("/api/project/<project_id>/gene", methods=["GET"])
 def get_gene(project_id):
     return handle_data_request(project_id, Dtype.GENE)
@@ -146,22 +109,9 @@ def prepare_insert_data(dtype, project_id, project):
     table_name = dtype.value
     match dtype:
         case dtype.GENE:
-            annotation, counts = project.load(dtype)
-            counts_long = counts.unpivot(
-                index=["gene_id"], variable_name="external_id", value_name="count"
-            ).with_columns(pl.lit(project_id).alias("project_id"))
+            from services.data_service import gene_prep
 
-            records = counts_long.to_dicts()
-
-            values = [
-                (r["project_id"], r["external_id"], r["gene_id"], r["count"])
-                for r in records
-            ]
-
-            insert_query = sql.SQL("""
-            INSERT INTO sammy.{} (project_id, external_id, gene_id, count)
-            VALUES %s
-            """).format(sql.Identifier(table_name))
+            values, insert_query = gene_prep(project, project_id, dtype, table_name)
 
         case dtype.EXON:
             annotation, counts = project.load(dtype)
