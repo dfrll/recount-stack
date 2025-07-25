@@ -39,7 +39,7 @@ just down
 | Service | Purpose                                                               | Technology       |
 | ------- | --------------------------------------------------------------------- | ---------------- |
 | db      | PostgreSQL 15 database initialized from `infra/postgres/init.sql`     | PostgreSQL 15    |
-| loader  | Python service that populates project metadata (runs once at startup) | Python 3.9+      |
+| loader  | Python service that populates project metadata (runs once at startup) | Python 3.11+      |
 | server  | Flask API server using Gunicorn for production deployment             | Flask + Gunicorn |
 | app     | Vue 3 frontend compiled into static assets and served by NGINX        | Vue 3 + Vite     |
 | nginx   | Public reverse proxy that serves frontend and forwards API requests   | Nginx            |
@@ -48,9 +48,9 @@ just down
 
 | Service (Container)           | Host → Container Port   | Purpose                          |
 |-------------------------------|------------------------|----------------------------------|
-| nginx (`recountlab-nginx-1`)  | 80 → 80                | Public frontend + API            |
-| server (`recountlab-server-1`)| (internal only) → 8080 | Flask API (Gunicorn)             |
-| db (`recountlab-db-1`)        | (internal only) → 5432 | PostgreSQL (internal in prod)    |
+| nginx (`recount-stack-nginx-1`)  | 80 → 80                | Public frontend + API            |
+| server (`recount-stack-server-1`)| (internal only) → 8080 | Flask API (Gunicorn)             |
+| db (`recount-stack-db-1`)        | (internal only) → 5432 | PostgreSQL (internal in prod)    |
 
 ## Volumes
 
