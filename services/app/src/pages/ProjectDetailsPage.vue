@@ -15,18 +15,24 @@ import type { GridOptions } from 'ag-grid-enterprise'
 const route = useRoute()
 const mdTheme = inject<Theme<unknown>>('mdTheme');
 
+// grid API instances
 const projectGridApi = ref<GridApi | null>(null)
 const geneGridApi = ref<GridApi | null>(null)
 const exonGridApi = ref<GridApi | null>(null)
 
-// composables
+// composables for data fetching from backend APIs
 const { project, fetchProject } = useProjectData()
 const { fetchGene } = useGeneData()
 const { fetchExon } = useExonData()
 
+// visibility state and toggles for collapsible tables
 const { isVisible: isProjectVisible, toggle: toggleProject } = useVisibility(true)
 const { isVisible: isGeneVisible, toggle: toggleGene } = useVisibility(false)
 const { isVisible: isExonVisible, toggle: toggleExon } = useVisibility(false)
+
+// track which project IDs have already triggered insert logic
+const insertedGeneProjects = ref<Set<string>>(new Set())
+const insertedExonProjects = ref<Set<string>>(new Set())
 
 // computed properties
 const projectId = computed(() => route.params.project_id as string)
@@ -95,11 +101,13 @@ function onProjectGridReady(params: any) {
 
 function onGeneGridReady(params: any) {
     geneGridApi.value = params.api
+    params.api.setServerSideDatasource(geneDatasource)
     console.log('[GeneGrid] Grid ready');
 }
 
 function onExonGridReady(params: any) {
     exonGridApi.value = params.api
+    params.api.setServerSideDatasource(exonDatasource)
     console.log('[ExonGrid] Grid ready');
 }
 
@@ -108,6 +116,10 @@ watch(
     [projectId, geneGridApi],
     async ([newId, api]) => {
         if (!newId || !api) return;
+
+        if (insertedGeneProjects.value.has(newId)) return
+
+        insertedGeneProjects.value.add(newId)
 
         console.log('[Watcher: GeneGrid] Project ID or Grid API changed:', newId);
         try {
@@ -131,6 +143,10 @@ watch(
     async ([newId, api]) => {
         if (!newId || !api) return;
 
+        if (insertedExonProjects.value.has(newId)) return
+
+        insertedExonProjects.value.add(newId)
+
         console.log('[Watcher: ExonGrid] Project ID or Grid API changed:', newId);
         try {
             api.setGridOption('serverSideDatasource', exonDatasource)
@@ -144,7 +160,6 @@ watch(
     },
     { immediate: true }
 )
-
 
 // grid options
 const BASE_GRID_OPTIONS: GridOptions = {
