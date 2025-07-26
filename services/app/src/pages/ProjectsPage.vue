@@ -6,7 +6,8 @@ import { AgGridVue } from "ag-grid-vue3";
 import type { GridOptions, Theme } from 'ag-grid-community'
 
 interface Project {
-    project_id: string
+    project_id: string;
+    external_id_count?: number;
 }
 
 // reactive state
@@ -19,6 +20,7 @@ const loading = ref(true)
 
 const columnDefs: GridOptions['columnDefs'] = [
     { headerName: 'Project', field: 'project_id' },
+    { headerName: 'External ID Count', field: 'external_id_count', cellDataType: 'number' }
 ]
 
 onMounted(async () => {
@@ -26,6 +28,7 @@ onMounted(async () => {
         const res = await axios.get('/api/projects')
         if (res.data.status === "success") {
             md.value = res.data.table
+            console.log('Loaded projects:', md.value);
         } else {
             error.value = 'Failed to load projects'
         }

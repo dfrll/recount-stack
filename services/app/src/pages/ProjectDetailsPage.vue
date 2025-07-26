@@ -30,9 +30,6 @@ const { isVisible: isProjectVisible, toggle: toggleProject } = useVisibility(tru
 const { isVisible: isGeneVisible, toggle: toggleGene } = useVisibility(false)
 const { isVisible: isExonVisible, toggle: toggleExon } = useVisibility(false)
 
-// track which project IDs have already triggered insert logic
-const insertedGeneProjects = ref<Set<string>>(new Set())
-const insertedExonProjects = ref<Set<string>>(new Set())
 
 // computed properties
 const projectId = computed(() => route.params.project_id as string)
@@ -102,13 +99,13 @@ function onProjectGridReady(params: any) {
 function onGeneGridReady(params: any) {
     console.log('[GeneGrid] API methods:', Object.keys(params.api));
     geneGridApi.value = params.api
-    params.api.setServerSideDatasource(geneDatasource)
+    params.api.setGridOption('serverSideDatasource', geneDatasource)
     console.log('[GeneGrid] Grid ready');
 }
 
 function onExonGridReady(params: any) {
     exonGridApi.value = params.api
-    params.api.setServerSideDatasource(exonDatasource)
+    params.api.setGridOption('serverSideDatasource', exonDatasource)
     console.log('[ExonGrid] Grid ready');
 }
 
@@ -117,10 +114,6 @@ watch(
     [projectId, geneGridApi],
     async ([newId, api]) => {
         if (!newId || !api) return;
-
-        if (insertedGeneProjects.value.has(newId)) return
-
-        insertedGeneProjects.value.add(newId)
 
         console.log('[Watcher: GeneGrid] Project ID or Grid API changed:', newId);
         try {
@@ -144,10 +137,6 @@ watch(
     async ([newId, api]) => {
         if (!newId || !api) return;
 
-        if (insertedExonProjects.value.has(newId)) return
-
-        insertedExonProjects.value.add(newId)
-
         console.log('[Watcher: ExonGrid] Project ID or Grid API changed:', newId);
         try {
             api.setGridOption('serverSideDatasource', exonDatasource)
@@ -169,7 +158,7 @@ const BASE_GRID_OPTIONS: GridOptions = {
         filter: true,
         resizable: true,
         wrapText: false,
-        autoHeight: false,
+        autoHeight: true,
     },
     pagination: true,
     animateRows: false,
