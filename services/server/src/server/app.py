@@ -147,6 +147,9 @@ def prepare_insert_data(dtype, project_id, project):
     match dtype:
         case dtype.GENE:
             annotation, counts = project.load(dtype)
+
+            logging.info(f"Table {table_name}: unpivot")
+
             counts_long = counts.unpivot(
                 index=["gene_id"], variable_name="external_id", value_name="count"
             ).with_columns(pl.lit(project_id).alias("project_id"))
@@ -165,13 +168,14 @@ def prepare_insert_data(dtype, project_id, project):
 
         case dtype.EXON:
             annotation, counts = project.load(dtype)
+
+            logging.info(f"Table {table_name}: unpivot")
+
             counts_long = counts.unpivot(
                 index=["chrom", "start", "end", "strand"],
                 variable_name="external_id",
                 value_name="count",
             ).with_columns(pl.lit(project_id).alias("project_id"))
-
-            logging.info(f"Table {table_name} unpivot finished.")
 
             records = counts_long.to_dicts()
             values = [

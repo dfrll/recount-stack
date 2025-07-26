@@ -48,4 +48,5 @@ USER appuser
 
 EXPOSE 8080
 
-ENTRYPOINT ["gunicorn", "--config=file:config/gunicorn.py", "src.server.app:app"]
+ENTRYPOINT ["gunicorn"]
+CMD ["--config=file:config/gunicorn.py", "src.server.app:app"]

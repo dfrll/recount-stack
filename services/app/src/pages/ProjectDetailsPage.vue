@@ -100,6 +100,7 @@ function onProjectGridReady(params: any) {
 }
 
 function onGeneGridReady(params: any) {
+    console.log('[GeneGrid] API methods:', Object.keys(params.api));
     geneGridApi.value = params.api
     params.api.setServerSideDatasource(geneDatasource)
     console.log('[GeneGrid] Grid ready');

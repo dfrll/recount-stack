@@ -21,7 +21,7 @@ build-dev: update-locks
 
 # Prod build: builds images as-is (use committed poetry.lock)
 build-prod:
-    docker compose build --no-cache
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml build
 
 # Bring stack up (dev uses dev build)
 up-dev: build-dev
@@ -29,7 +29,7 @@ up-dev: build-dev
 
 # Bring up the full production stack without updating poetry.lock files
 up-prod: build-prod
-    docker compose up
+    docker compose -f docker-compose.yml -f docker-compose.prod.yml up
 
 # Shut down and clean volumes
 down:
