@@ -1,0 +1,25 @@
+# Production overrides - use this for production builds
+services:
+  app:
+    build:
+      context: services/app
+      target: app-dist
+    volumes:
+      - app-dist:/app/dist
+
+  server:
+    # no --reload)
+    environment:
+      GUNICORN_BIND: 0.0.0.0:8080
+      GUNICORN_WORKERS: 4
+      GUNICORN_THREADS: 4
+      GUNICORN_TIMEOUT: 30
+
+  nginx:
+    volumes:
+      - app-dist:/usr/share/nginx/html
+      # production config
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+      - server

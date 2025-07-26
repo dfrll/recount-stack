@@ -1,0 +1,38 @@
+services:
+  app:
+    build:
+      context: services/app
+      target: build # Use Node.js stage, not busybox
+    volumes:
+      - ./services/app/src:/app/src:ro
+      - ./services/app/public:/app/public:ro
+      - ./services/app/package.json:/app/package.join:ro
+      - ./services/app/vite.config.ts:/app/vite.config.js:ro
+    command: [ 'npm', 'run', 'dev', '--', '--host', '0.0.0.0' ]
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost/api
+
+  server:
+    volumes:
+      - ./services/server/src:/app/src:ro
+      - ./services/server/config:/app/config:ro
+    environment:
+      - PYTHONPATH=/app
+    working_dir: /app
+    command: ["--config=file:config/gunicorn.py", "--reload", "src.server.app:app"]
+
+  loader:
+    volumes:
+      - ./services/loader/src:/app/src:ro
+      - ./services/loader/config:/app/config:ro
+    environment:
+      - PYTHONPATH=/app
+
+  nginx:
+    volumes:
+      - ./infra/nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - server
