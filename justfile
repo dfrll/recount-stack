@@ -17,11 +17,11 @@ update-locks: update-lock-loader update-lock-server
 
 # Dev build: updates locks before building
 build-dev: update-locks
-    docker compose build --no-cache loader server app nginx
+    docker compose build --no-cache
 
 # Prod build: builds images as-is (use committed poetry.lock)
 build-prod:
-    docker compose build loader server app nginx
+    docker compose build --no-cache
 
 # Bring stack up (dev uses dev build)
 up-dev: build-dev
