@@ -28,13 +28,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+        restart: true
     secrets:
       - loader
 
   server:
     build: services/server
-    depends_on:
-      - loader
     secrets:
       - server
     environment:
@@ -47,17 +46,17 @@ services:
     build:
       context: services/app
       target: app-dist
-    image: app_dist
-    depends_on:
-      - server
+    volumes:
+      - app-dist:/app/dist
 
   nginx:
     build:
       context: infra/nginx
+    volumes:
+      - app-dist:/usr/share/nginx/html
     ports:
       - "80:80"
     depends_on:
-      - server
       - app
 
 secrets:
@@ -70,3 +69,4 @@ secrets:
 
 volumes:
   pgdata:
+  app-dist:
